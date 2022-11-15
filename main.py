@@ -36,7 +36,9 @@ class EllipticCurve:
 
     def addPoints(self,p1,p2):
         prime=self.p
-        if(p1.i==True):
+        if(p1.i==True and p2.i==True):
+            return ECPoint(None,None,True)
+        elif(p1.i==True):
             return ECPoint(p2.x,p2.y,False)
         elif (p2.i == True):
             return ECPoint(p1.x,p1.y,False)
@@ -67,6 +69,23 @@ class EllipticCurve:
         for i in range(2,k+1):
             result = self.addPoints(result,point)
         return result
+
+    def multEfficient(self,k,point):
+        #to binary
+        binaryK = []
+        while(k>0):
+            binaryK.insert(0,k&1)
+            k = k >> 1
+        
+        #square abd multiply
+        result = ECPoint(None,None,True)
+        for bit in binaryK:
+            result = self.addPoints(result,result)
+            if(bit&1):
+                result = self.addPoints(result,point)
+        return result
+            
+
         
 ##########################################################################
 #erweiterter euklidischer Algorithmus
@@ -156,6 +175,21 @@ def standardTest():
 
 #################################################################
 
+def squareAndMultiplyPerformanceTest(k):
+    el = EllipticCurve(15792089237316195423570985008687907853269984665640564039457583998564650230,226240555579959135501798302826772606856863713236549343666662115354037011922517,231584178474632390847141970017375815706539969331281128078915168015826259280027)
+    p = ECPoint(84643561111080986662651636923349329984053149284385423934626192020695774567758,16942054190385317238677253571605670478896761682179953703038465984768056609039,False)
+    start_time = time.time_ns()
+    print(el.multEfficient(k,p))
+    delta_time_efficient = time.time_ns() - start_time
+    print("Efficient Multiplication of {}*point took {} milli seconds".format(k,delta_time_efficient/1000000))
+
+    start_time = time.time()
+    print(el.mult(k,p))
+    delta_time_slow = time.time_ns() - start_time
+    print("Inefficient Multiplication of {}*point took {} milli seconds".format(k,delta_time_slow/1000000))
+    print("That is a speedup of {}".format(delta_time_slow/delta_time_efficient))
+    
+
 
 #led = machine.Pin(25, machine.Pin.OUT)
 #while True:
@@ -163,4 +197,5 @@ def standardTest():
     #utime.sleep(1)
     #led.value(0)
     #utime.sleep(1)
-performanceTest(10000)
+#performanceTest(1000)
+squareAndMultiplyPerformanceTest(10000)
