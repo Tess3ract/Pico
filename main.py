@@ -1,40 +1,53 @@
 # main.py -- put your code here!
 
-#import machine
-#import utime
 import time
+import random
+import machine
 
 
 ##########################################################################
 class ECPoint:
 
-  def __init__(self,x,y,i):
-    if(i):
-      self.x=None
-      self.y=None
-      self.i=True
-    else:
-        self.x=x
-        self.y=y
-        self.i=False
+    def __init__(self,x,y,i):
+        if(i):
+            self.x=None
+            self.y=None
+            self.i=True
+        else:
+            self.x=x
+            self.y=y
+            self.i=False
 
-  def __str__(self):
-    return "x:{}  y:{}  identity:{}".format(self.x,self.y,self.i)
+    def __str__(self) -> str:
+        return "[x:{}  y:{}  identity:{}]".format(self.x,self.y,self.i)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ECPoint):
+            if(self.i==True and other.i==True):
+                return True
+            else:
+                return ((self.i == other.i) and (self.x == other.x) and (self.y == other.y))
+        return False
 ##########################################################################
 
 
 ##########################################################################
 class EllipticCurve:
 # E: y^2 = x^3 + Ax + B mod p
-    def __init__(self, A, B, p):
+    def __init__(self, A:int, B:int, p:int):
         self.A = A
         self.B = B
         self.p = p
 
-    def __str__(self):
-        return "E: y^2 = x^3 + {}x + {} mod {}".format(self.A,self.B,self.p)
+    def __str__(self) -> str:
+        return "[E: y^2 = x^3 + {}x + {} mod {}]".format(self.A,self.B,self.p)
 
-    def addPoints(self,p1,p2):
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, EllipticCurve):
+            return ((self.A == other.A) and (self.B == other.B) and (self.p == other.p))
+        return False
+
+    def addPoints(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
         prime=self.p
         if(p1.i==True and p2.i==True):
             return ECPoint(None,None,True)
@@ -56,13 +69,15 @@ class EllipticCurve:
             return ECPoint (x3,y3,False)
         else:
             return ECPoint (None,None,True)
-        
+
+    def double(self, p:ECPoint) -> ECPoint:
+        return self.addPoints(p,p)    
     
-    def onCurve (self, point):
+    def onCurve (self, point:ECPoint) -> bool:
         if point.i==True: return True
         return ( pow(point.y,2,self.p) == (pow(point.x,3,self.p) + (self.A*point.x)%self.p + self.B)%self.p )
     
-    def mult(self,k,point):
+    def mult(self, k:int, point:ECPoint) -> ECPoint:
         if(point.i==True):
             return ECPoint(None,None,True)
         result = ECPoint(point.x,point.y,False)
@@ -70,17 +85,17 @@ class EllipticCurve:
             result = self.addPoints(result,point)
         return result
 
-    def multEfficient(self,k,point):
+    def multEfficient(self, k:int, point:ECPoint) -> ECPoint:
         #to binary
         binaryK = []
         while(k>0):
             binaryK.insert(0,k&1)
             k = k >> 1
         
-        #square abd multiply
+        #square and multiply
         result = ECPoint(None,None,True)
         for bit in binaryK:
-            result = self.addPoints(result,result)
+            result = self.double(result)
             if(bit&1):
                 result = self.addPoints(result,point)
         return result
@@ -113,6 +128,60 @@ def modInv(a,n):
     while(x<0):
         x=x+n
     return x
+#################################################################
+
+#Elliptic Curve curve, generator g
+class DiffieHellman:
+    def __init__(self, curve:EllipticCurve, g:int):
+        self.curve = curve
+        self.g = g
+    
+    def __str__(self) -> str:
+        return "Diffie-Hellman Protocol with prime {} and generator {}".format(self.curve.p,self.g)
+    
+    def generatePrivateKey(self) -> int:
+        return random.randint(0,self.curve.p-1) #this is not secure. It's only pseudo-random generator
+
+    #private key a
+    def generatePublicKey(self, a:int) -> ECPoint:
+        return self.curve.multEfficient(a,self.g)
+    
+    def generateSharedKey(self, a:int, gb:ECPoint) -> ECPoint:
+        return self.curve.multEfficient(a,gb)
+    
+    def demonstration(self, a:int, b:int):
+        #A sends g^a to B
+        ga = self.generatePublicKey(a)
+        print("A sends {} to B.".format(ga))
+        #B sends g^b to A
+        gb = self.generatePublicKey(b)
+        print("B sends {} to A.".format(gb))
+        #A calculates shared key
+        ka = self.generateSharedKey(a,gb)
+        print("A calculates shared key: ",ka)
+        #B calculates shared key
+        kb = self.generateSharedKey(b,ga)
+        print("B calculates shared key: ",kb)
+        led = machine.Pin(25, machine.Pin.OUT)
+        if(ka == kb):
+            print("Key exchange was successful!")
+            for i in range(8):
+                led.value(1)
+                time.sleep(1)
+                led.value(0)
+                time.sleep(1)
+        else:
+            print("Error! \t Key exchange was not successful!")
+            for i in range(40):
+                led.value(1)
+                time.sleep(0.2)
+                led.value(0)
+                time.sleep(0.2)
+
+
+
+
+
 #################################################################
 def performanceTest(k):
     print("Starting test...")
@@ -189,13 +258,42 @@ def squareAndMultiplyPerformanceTest(k):
     print("Inefficient Multiplication of {}*point took {} milli seconds".format(k,delta_time_slow/1000000))
     print("That is a speedup of {}".format(delta_time_slow/delta_time_efficient))
     
+###############################################################
+def DiffieHellmanTest(seed:int):
+    random.seed(seed)
+    el = EllipticCurve(15792089237316195423570985008687907853269984665640564039457583998564650230,115792089237316195423570985008687907853269984665640564039457583998564650230197,115792089237316195423570985008687907853269984665640564039457584007913129640233)
+    g = ECPoint(104643561111080986962651636923349329984053149284385423934626192020695774567758,112131754190385317238677253571605670478896761682179953703038465984768056609039,False)
+    dh =DiffieHellman(el,g)
+    dh.demonstration(3213116346345747532433575637756332, 51343134153233461546742563545345235232353252353246436)
 
+###############################################################
+#a^(-1) equals a^(p-2)
+def inverseMultRatioTest(number:int, epoch:int):
+    led = machine.Pin(25, machine.Pin.OUT)
+    p = 115792089237316195423570985008687907853269984665640564039457584007913129640233
+    time_mult=0
+    time_inverse=0
+    for i in range(0,epoch):
+        start_time = time.time_ns()
+        pow(number,2,p)
+        delta_time = time.time_ns() - start_time
+        #print("Mult took {} nano seconds".format(delta_time))
+        time_mult += delta_time
+        led.value(1)
 
-#led = machine.Pin(25, machine.Pin.OUT)
-#while True:
-    #led.value(1)
-    #utime.sleep(1)
-    #led.value(0)
-    #utime.sleep(1)
+        start_time = time.time_ns()
+        modInv(number,p)
+        delta_time = time.time_ns() - start_time
+        #print("Inverse took {} nano seconds".format(delta_time))
+        time_inverse += delta_time
+        led.value(0)
+
+    print("Average inverse in ns: ", time_inverse/epoch)
+    print("Average mult in ns: ", time_mult/epoch)
+    print("Ratio is ", time_inverse/time_mult)
+###############################################################
+
 #performanceTest(1000)
-squareAndMultiplyPerformanceTest(10000)
+#squareAndMultiplyPerformanceTest(10000)
+#DiffieHellmanTest(4)
+inverseMultRatioTest(1046435611110809869626516369233493299840531492843854239346266420534567758,10000)
