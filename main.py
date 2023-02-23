@@ -31,6 +31,8 @@ class ECPoint:
 ##########################################################################
 
 
+
+
 ##########################################################################
 class EllipticCurve:
 # E: y^2 = x^3 + Ax + B mod p
@@ -103,6 +105,138 @@ class EllipticCurve:
 
         
 ##########################################################################
+class Curve25519 (EllipticCurve):
+    # E: B*y^2 = x^3 + A x^2 + x mod p
+    def __init__(self):
+        EllipticCurve.__init__(self,486662,1, pow(2,255) - 19)
+    
+    def onCurve (self, point:ECPoint) -> bool:
+        if point.i==True: return True
+        return (self.B*pow(point.y,2,self.p) % self.p)  == ((pow(point.x,3,self.p) + self.A* pow(point.x,2,self.p) + point.x)%self.p )
+
+    
+    def addPointsAffine(self,  p1:ECPoint, p2:ECPoint) -> ECPoint:
+        if(p1.i==True and p2.i == True):
+            return ECPoint(None,None,True)
+        elif (p1.i == True):
+            return ECPoint(p2.x,p2.y,False)
+        elif (p2.i == True):
+            return ECPoint(p1.x,p1.y,False)
+
+
+        bruch1 = ((p1.y-p2.y)%self.p * modInv(p1.x-p2.x, self.p)) % self.p
+
+        x3 = ( pow(bruch1,2,self.p) - self.A - p1.x - p2.x ) % self.p
+        
+        bruch2 = ((p2.y-p1.y)%self.p * modInv(p2.x-p1.x, self.p)) % self.p
+        y3 = ((p1.x-x3) * bruch2 - p1.y) %self.p
+
+        return ECPoint(x3,y3,False)
+
+    
+    def addPoints(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
+        #in case some point is point at infinity
+        if(p1.i==True and p2.i == True):
+            return ECPoint(None,None,True)
+        elif (p1.i == True):
+            return ECPoint(p2.x,p2.y,False)
+        elif (p2.i == True):
+            return ECPoint(p1.x,p1.y,False)
+
+        #affine to projective
+        X1 = p1.x
+        Y1 = p1.y
+        Z = 1
+        X2 = p2.x
+        Y2 = p2.y
+
+        #calculation
+        U1 = Y2*Z % self.p
+        U2 = Y1*Z % self.p
+        V1 = X2*Z % self.p
+        V2 = X1*Z % self.p
+        if(V1==V2):
+            if(U1 != U2):
+                return ECPoint(None,None,True)
+            else:
+                return self.double(p1)
+        U = U1 - U2 % self.p
+        V = V1 - V2 % self.p
+        W = Z*Z % self.p
+        A = (pow(U,2,self.p)*W - pow(V,3,self.p) - 2* pow(V,2,self.p) * V2) % self.p
+        X3 = V*A % self.p
+        Y3 = (U*(pow(V,2,self.p)*V -A) - pow(V,3,self.p) * U2) % self.p
+        Z3 = (pow(V,3,self.p)*W) % self.p
+
+        #projective to affine
+        Z_inverse = modInv(Z3,self.p)
+        x_new = (X3 * Z_inverse - self.A) % self.p
+        y_new_squared = (pow(x_new,3,self.p) + self.A* pow(x_new,2,self.p) + x_new)%self.p
+        y_new = modular_sqrt(y_new_squared,self.p) %self.p
+
+        #correct y_new? maybe we got -(y_new) here
+
+        #gradient of line (correct m)
+        m = (p2.y - p1.y) * modInv(p2.x - p1.x,self.p)
+        #gradient with new point
+        m_new = (p2.y - y_new) * modInv(p2.x - x_new,self.p)
+        #if m != m_new we need to recalculate y_new
+        if(m != m_new):
+            y_new = self.p - y_new
+
+        return ECPoint(x_new,y_new,False)
+
+
+        
+    def doubleAffine(self, point:ECPoint) -> ECPoint:
+        if(point.i == True):
+            return ECPoint(None,None,True)
+        
+        c = ((3 * pow(point.x,2,self.p) + 2 * self.A * point.x +1) * modInv(2 * self.B * point.y, self.p)) %self.p
+        
+
+        x_new = (self.B * pow(c,2,self.p) -self.A - 2 * point.x) %self.p
+
+        y_new = ((2 * point.x + point.x + self.A)*c - pow(c,3,self.p) - point.y) %self.p
+
+        
+
+        return ECPoint(x_new,y_new,False)
+
+    def double(self, point:ECPoint) -> ECPoint:
+        if(point.i == True):
+            return ECPoint(None,None,True)
+
+        X1 = point.x
+        Z = 1
+        XX1 = pow(X1,2,self.p)
+        X3 = pow(XX1-1,2,self.p)
+        Z3 = 4*X1*(XX1 + self.A*X1 +1) % self.p
+
+        Z_inverse = modInv(Z3, self.p)
+        x_new = X3 * Z_inverse % self.p
+
+        #y_new = ((pow(point.x,2,self.p)+1)*(2*point.x+2*self.A) - 2*self.A) * modInv(2*point.y,self.p) % self.p
+        y_new_squared = (pow(x_new,3,self.p) + self.A* pow(x_new,2,self.p) + x_new)%self.p
+        y_new = modular_sqrt(y_new_squared,self.p) %self.p
+        return ECPoint(x_new,y_new,False)
+
+    def mult(self, k:int, point:ECPoint) -> ECPoint:
+        #to binary
+        binaryK = []
+        while(k>0):
+            binaryK.insert(0,k&1)
+            k = k >> 1
+        
+        #square and multiply
+        result = ECPoint(None,None,True)
+        for bit in binaryK:
+            result = self.doubleAffine(result)
+            if(bit&1):
+                result = self.addPointsAffine(result,point)
+        return result
+
+##########################################################################
 #erweiterter euklidischer Algorithmus
 def EEA(a, n):
     if a == 0:
@@ -130,9 +264,109 @@ def modInv(a,n):
     return x
 #################################################################
 
+def modular_sqrt(a, p):
+    """ Find a quadratic residue (mod p) of 'a'. p
+        must be an odd prime.
+
+        Solve the congruence of the form:
+            x^2 = a (mod p)
+        And returns x. Note that p - x is also a root.
+
+        0 is returned is no square root exists for
+        these a and p.
+
+        The Tonelli-Shanks algorithm is used (except
+        for some simple cases in which the solution
+        is known from an identity). This algorithm
+        runs in polynomial time (unless the
+        generalized Riemann hypothesis is false).
+    """
+    # Simple cases
+    #
+    if legendre_symbol(a, p) != 1:
+        return 0
+    elif a == 0:
+        return 0
+    elif p == 2:
+        return 0
+    elif p % 4 == 3:
+        var2 = (p+1) >> 2
+        return pow(a, var2, p)
+
+    # Partition p-1 to s * 2^e for an odd s (i.e.
+    # reduce all the powers of 2 from p-1)
+    #
+    s = p - 1
+    e = 0
+    while s % 2 == 0:
+        s = s >> 1
+        e += 1
+
+    # Find some 'n' with a legendre symbol n|p = -1.
+    # Shouldn't take long.
+    #
+    n = 2
+    while legendre_symbol(n, p) != -1:
+        n += 1
+
+    # Here be dragons!
+    # Read the paper "Square roots from 1; 24, 51,
+    # 10 to Dan Shanks" by Ezra Brown for more
+    # information
+    #
+
+    # x is a guess of the square root that gets better
+    # with each iteration.
+    # b is the "fudge factor" - by how much we're off
+    # with the guess. The invariant x^2 = ab (mod p)
+    # is maintained throughout the loop.
+    # g is used for successive powers of n to update
+    # both a and b
+    # r is the exponent - decreases with each update
+    #
+    var1 = (s+1) >> 1
+    x = pow(a, var1, p)
+    b = pow(a, s, p)
+    g = pow(n, s, p)
+    r = e
+
+    while True:
+        t = b
+        m = 0
+        for m in range(r):
+            if t == 1:
+                break
+            t = pow(t, 2, p)
+
+        if m == 0:
+            return x
+
+        gs = pow(g, 2 ** (r - m - 1), p)
+        g = (gs * gs) % p
+        x = (x * gs) % p
+        b = (b * g) % p
+        r = m
+
+
+def legendre_symbol(a, p):
+    """ Compute the Legendre symbol a|p using
+        Euler's criterion. p is a prime, a is
+        relatively prime to p (if p divides
+        a, then a|p = 0)
+
+        Returns 1 if a has a square root modulo
+        p, -1 otherwise.
+    """
+    p_half = (p-1) >> 1
+
+    ls = pow(a, p_half, p)
+    return -1 if ls == p - 1 else ls
+
+#################################################################
+
 #Elliptic Curve curve, generator g
 class DiffieHellman:
-    def __init__(self, curve:EllipticCurve, g:int):
+    def __init__(self, curve:EllipticCurve, g:ECPoint):
         self.curve = curve
         self.g = g
     
@@ -140,7 +374,8 @@ class DiffieHellman:
         return "Diffie-Hellman Protocol with prime {} and generator {}".format(self.curve.p,self.g)
     
     def generatePrivateKey(self) -> int:
-        return random.randint(0,self.curve.p-1) #this is not secure. It's only pseudo-random generator
+        return random.randint(2
+        ,self.curve.p-1) #this is not secure. It's only pseudo-random generator. But it's not really relevant either
 
     #private key a
     def generatePublicKey(self, a:int) -> ECPoint:
@@ -247,15 +482,15 @@ def standardTest():
 def squareAndMultiplyPerformanceTest(k):
     el = EllipticCurve(15792089237316195423570985008687907853269984665640564039457583998564650230,226240555579959135501798302826772606856863713236549343666662115354037011922517,231584178474632390847141970017375815706539969331281128078915168015826259280027)
     p = ECPoint(84643561111080986662651636923349329984053149284385423934626192020695774567758,16942054190385317238677253571605670478896761682179953703038465984768056609039,False)
-    start_time = time.time_ns()
+    start_time = time.ticks_us()
     print(el.multEfficient(k,p))
-    delta_time_efficient = time.time_ns() - start_time
-    print("Efficient Multiplication of {}*point took {} milli seconds".format(k,delta_time_efficient/1000000))
+    delta_time_efficient = time.ticks_us() - start_time
+    print("Efficient Multiplication of {}*point took {} micro seconds".format(k,delta_time_efficient))
 
-    start_time = time.time()
+    start_time = time.ticks_us()
     print(el.mult(k,p))
-    delta_time_slow = time.time_ns() - start_time
-    print("Inefficient Multiplication of {}*point took {} milli seconds".format(k,delta_time_slow/1000000))
+    delta_time_slow = time.ticks_us() - start_time
+    print("Inefficient Multiplication of {}*point took {} micro seconds".format(k,delta_time_slow))
     print("That is a speedup of {}".format(delta_time_slow/delta_time_efficient))
     
 ###############################################################
@@ -274,26 +509,120 @@ def inverseMultRatioTest(number:int, epoch:int):
     time_mult=0
     time_inverse=0
     for i in range(0,epoch):
-        start_time = time.time_ns()
+        start_time = time.ticks_us()
         pow(number,2,p)
-        delta_time = time.time_ns() - start_time
+        delta_time = time.ticks_us() - start_time
         #print("Mult took {} nano seconds".format(delta_time))
         time_mult += delta_time
         led.value(1)
 
-        start_time = time.time_ns()
+        start_time = time.ticks_us()
         modInv(number,p)
-        delta_time = time.time_ns() - start_time
+        delta_time = time.ticks_us() - start_time
         #print("Inverse took {} nano seconds".format(delta_time))
         time_inverse += delta_time
         led.value(0)
 
-    print("Average inverse in ns: ", time_inverse/epoch)
-    print("Average mult in ns: ", time_mult/epoch)
+    print("Average inverse in micro seconds: ", time_inverse/epoch)
+    print("Average mult in micro seconds: ", time_mult/epoch)
     print("Ratio is ", time_inverse/time_mult)
 ###############################################################
 
+def Curve25519Test():
+    curve = Curve25519()
+    g = ECPoint(9, 14781619447589544791020593568409986887264606134616475288964881837755586237401,False)
+    p = ECPoint(9, 43114425171068552920764898935933967039370386198203806730763910166200978582548, False)
+    q = ECPoint(14847277145635483483963372537557091634710985132825781088887140890597596352251,48981431527428949880507557032295310859754924433568441600873610210018059225738,False)
+    print("On Curve? -> True, True, False")
+    print(curve.onCurve(g))
+    print(curve.onCurve(q))
+    print(curve.onCurve(ECPoint(1,4434243,False)))
+    pq = curve.addPoints(p,q)
+    p2 = curve.double(g)
+    print("Addition ------------------------------------")
+    print("P2 -------------------------------------")
+    print(p2)
+    print(curve.doubleAffine(g))
+    print("P4 -------------------------------------")
+    print(curve.double(p2))
+    print(curve.doubleAffine(p2))
+    print("P8 -------------------------------------")
+    print(curve.double(curve.double(p2)))
+    print(curve.doubleAffine(curve.doubleAffine(p2)))
+    print("P + Q -------------------------------------")
+    print(pq)
+    print("P + Q affine -----------------------------------------" )
+    print(curve.addPointsAffine(p,q))
+    #print("P4 -------------------------------------")
+    #print(curve.double(p2))
+    #p3 = curve.addPoints(p1,p2)
+    #print(curve.addPoints(p3,p1))
+    #print(curve.addPoints(p2,p2))
+
+
+def AffineVsProjective():
+    curve = Curve25519()
+    a_start = ECPoint(9, 14781619447589544791020593568409986887264606134616475288964881837755586237401,False)
+    b_start = ECPoint(9, 43114425171068552920764898935933967039370386198203806730763910166200978582548, False)
+    c_start = ECPoint(14847277145635483483963372537557091634710985132825781088887140890597596352251,48981431527428949880507557032295310859754924433568441600873610210018059225738,False)
+    d_start = ECPoint(12697861248284385512127539163427099897745340918349830473877503196793995869202,39113539887452079713994524130201898724087778094240617142109147539155741236674,False)
+
+    #affine
+    start_time = time.ticks_us()
+    a = a_start
+    b = b_start
+    c = c_start
+    d = d_start
+    for x in range (0,50):
+        a = curve.addPointsAffine(a,b)
+        b = curve.addPointsAffine(d,c)
+        c = curve.addPointsAffine(a,d)
+        d = curve.addPointsAffine(b,c)
+    delta_time_affine_addition = time.ticks_us() - start_time
+    print("affine addition: ", delta_time_affine_addition / 200, " micro seconds")
+
+    start_time = time.ticks_us()
+    for x in range (0,200):
+        a = curve.doubleAffine(a)
+    delta_time_affine_double = time.ticks_us() - start_time
+    print("affine doubling: ", delta_time_affine_double / 200, " micro seconds")
+
+    #projective
+    start_time = time.ticks_us()
+    a = a_start
+    b = b_start
+    c = c_start
+    d = d_start
+    for x in range (0,50):
+        a = curve.addPoints(a,b)
+        b = curve.addPoints(d,c)
+        c = curve.addPoints(a,d)
+        d = curve.addPoints(b,c)
+    delta_time_projective_addition = time.ticks_us() - start_time
+
+    print("projective addition: ", delta_time_projective_addition / 200, " micro seconds")
+
+    start_time = time.ticks_us()
+    for x in range (0,200):
+        a = curve.double(a)
+    delta_time_projective_double = time.ticks_us() - start_time
+    print("projective doubling: ", delta_time_projective_double / 200 , " micro seconds")
+
+    print("projective to affine ratio:")
+    print("addition: ", delta_time_projective_addition / delta_time_affine_addition)
+    print("doubling ", delta_time_projective_double / delta_time_affine_double)
+
+
+
+
+
+
+
+###############################################################
+
 #performanceTest(1000)
-#squareAndMultiplyPerformanceTest(10000)
+squareAndMultiplyPerformanceTest(100000)
 #DiffieHellmanTest(4)
-inverseMultRatioTest(1046435611110809869626516369233493299840531492843854239346266420534567758,10000)
+#inverseMultRatioTest(1046435611110809869626516369233493299840531492843854239346266420534567758,1000)
+#Curve25519Test()
+#AffineVsProjective()
