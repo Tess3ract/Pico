@@ -49,7 +49,7 @@ class EllipticCurve:
             return ((self.A == other.A) and (self.B == other.B) and (self.p == other.p))
         return False
 
-    def addPoints(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
+    def addPointsProjective(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
         prime=self.p
         if(p1.i==True and p2.i==True):
             return ECPoint(None,None,True)
@@ -72,8 +72,8 @@ class EllipticCurve:
         else:
             return ECPoint (None,None,True)
 
-    def double(self, p:ECPoint) -> ECPoint:
-        return self.addPoints(p,p)    
+    def doubleProjective(self, p:ECPoint) -> ECPoint:
+        return self.addPointsProjective(p,p)    
     
     def onCurve (self, point:ECPoint) -> bool:
         if point.i==True: return True
@@ -84,7 +84,7 @@ class EllipticCurve:
             return ECPoint(None,None,True)
         result = ECPoint(point.x,point.y,False)
         for i in range(2,k+1):
-            result = self.addPoints(result,point)
+            result = self.addPointsProjective(result,point)
         return result
 
     def multEfficient(self, k:int, point:ECPoint) -> ECPoint:
@@ -97,9 +97,9 @@ class EllipticCurve:
         #square and multiply
         result = ECPoint(None,None,True)
         for bit in binaryK:
-            result = self.double(result)
+            result = self.doubleProjective(result)
             if(bit&1):
-                result = self.addPoints(result,point)
+                result = self.addPointsProjective(result,point)
         return result
             
 
@@ -122,19 +122,22 @@ class Curve25519 (EllipticCurve):
             return ECPoint(p2.x,p2.y,False)
         elif (p2.i == True):
             return ECPoint(p1.x,p1.y,False)
+        elif(p1.x == p2.x):
+            if (p1.y == p2.y):   #p1 = p2
+                return self.doubleAffine(p1)  
+            else:  # p1 = p2^-1
+                return ECPoint(None,None,True)
 
 
-        bruch1 = ((p1.y-p2.y)%self.p * modInv(p1.x-p2.x, self.p)) % self.p
-
-        x3 = ( pow(bruch1,2,self.p) - self.A - p1.x - p2.x ) % self.p
-        
-        bruch2 = ((p2.y-p1.y)%self.p * modInv(p2.x-p1.x, self.p)) % self.p
-        y3 = ((p1.x-x3) * bruch2 - p1.y) %self.p
+        inverseDeltaX = modInv(p2.x -p1.x, self.p)
+        x3 = (pow(p2.y-p1.y,2,self.p) * pow(inverseDeltaX,2,self.p) - self.A - p1.x -p2.x) %self.p
+        y3 = ((2*p1.x+p2.x+self.A)*(p2.y-p1.y)* inverseDeltaX - pow(p2.y-p1.y,3,self.p)* pow(inverseDeltaX,3,self.p) -p1.y) %self.p
+ 
 
         return ECPoint(x3,y3,False)
 
     
-    def addPoints(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
+    def addPointsProjective(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
         #in case some point is point at infinity
         if(p1.i==True and p2.i == True):
             return ECPoint(None,None,True)
@@ -159,7 +162,7 @@ class Curve25519 (EllipticCurve):
             if(U1 != U2):
                 return ECPoint(None,None,True)
             else:
-                return self.double(p1)
+                return self.doubleProjective(p1)
         U = U1 - U2 % self.p
         V = V1 - V2 % self.p
         W = Z*Z % self.p
@@ -203,7 +206,7 @@ class Curve25519 (EllipticCurve):
 
         return ECPoint(x_new,y_new,False)
 
-    def double(self, point:ECPoint) -> ECPoint:
+    def doubleProjective(self, point:ECPoint) -> ECPoint:
         if(point.i == True):
             return ECPoint(None,None,True)
 
@@ -219,9 +222,30 @@ class Curve25519 (EllipticCurve):
         #y_new = ((pow(point.x,2,self.p)+1)*(2*point.x+2*self.A) - 2*self.A) * modInv(2*point.y,self.p) % self.p
         y_new_squared = (pow(x_new,3,self.p) + self.A* pow(x_new,2,self.p) + x_new)%self.p
         y_new = modular_sqrt(y_new_squared,self.p) %self.p
+
+        #correct y_new? maybe we got -(y_new) here
+
+        #gradient of line (correct m)
+        #m = (p2.y - p1.y) * modInv(p2.x - p1.x,self.p)
+        #gradient with new point
+        # = (p2.y - y_new) * modInv(p2.x - x_new,self.p)
+        #if m != m_new we need to recalculate y_new
+        #if(m != m_new):
+            #y_new = self.p - y_new
+
+
         return ECPoint(x_new,y_new,False)
 
     def mult(self, k:int, point:ECPoint) -> ECPoint:
+        if(point.i==True):
+            return ECPoint(None,None,True)
+        result = ECPoint(point.x,point.y,False)
+        for i in range(2,k+1):
+            print("p*", i-1, " : ", result)
+            result = self.addPointsAffine(result,point)
+        return result
+
+    def multEfficient(self, k:int, point:ECPoint) -> ECPoint:
         #to binary
         binaryK = []
         while(k>0):
@@ -232,6 +256,7 @@ class Curve25519 (EllipticCurve):
         result = ECPoint(None,None,True)
         for bit in binaryK:
             result = self.doubleAffine(result)
+            #result = self.double(result)
             if(bit&1):
                 result = self.addPointsAffine(result,point)
         return result
@@ -475,7 +500,7 @@ def standardTest():
 
     for p1 in points1:
         for p2 in points2:
-            print(p1," + ",p2, " = ", el.addPoints(p1,p2))
+            print(p1," + ",p2, " = ", el.addPointsProjective(p1,p2))
 
 #################################################################
 
@@ -494,12 +519,18 @@ def squareAndMultiplyPerformanceTest(k):
     print("That is a speedup of {}".format(delta_time_slow/delta_time_efficient))
     
 ###############################################################
-def DiffieHellmanTest(seed:int):
-    random.seed(seed)
+def DiffieHellmanTest():
     el = EllipticCurve(15792089237316195423570985008687907853269984665640564039457583998564650230,115792089237316195423570985008687907853269984665640564039457583998564650230197,115792089237316195423570985008687907853269984665640564039457584007913129640233)
     g = ECPoint(104643561111080986962651636923349329984053149284385423934626192020695774567758,112131754190385317238677253571605670478896761682179953703038465984768056609039,False)
     dh =DiffieHellman(el,g)
-    dh.demonstration(3213116346345747532433575637756332, 51343134153233461546742563545345235232353252353246436)
+    dh.demonstration(57896044618658097711785492504343953926512770110598059797506569779613311366406, 47606440156792287940606943253909558533971493099538253817755912803560908337955)
+
+def DiffieHellmanTestCurve25519():
+    
+    g = ECPoint(9, 14781619447589544791020593568409986887264606134616475288964881837755586237401,False)
+    curve = Curve25519()
+    dh = DiffieHellman(curve,g)
+    dh.demonstration(57896044618658097711785492504343953926512770110598059797506569779613311366406,47606440156792287940606943253909558533971493099538253817755912803560908337955)
 
 ###############################################################
 #a^(-1) equals a^(p-2)
@@ -512,14 +543,12 @@ def inverseMultRatioTest(number:int, epoch:int):
         start_time = time.ticks_us()
         pow(number,2,p)
         delta_time = time.ticks_us() - start_time
-        #print("Mult took {} nano seconds".format(delta_time))
         time_mult += delta_time
         led.value(1)
 
         start_time = time.ticks_us()
         modInv(number,p)
         delta_time = time.ticks_us() - start_time
-        #print("Inverse took {} nano seconds".format(delta_time))
         time_inverse += delta_time
         led.value(0)
 
@@ -537,17 +566,19 @@ def Curve25519Test():
     print(curve.onCurve(g))
     print(curve.onCurve(q))
     print(curve.onCurve(ECPoint(1,4434243,False)))
-    pq = curve.addPoints(p,q)
-    p2 = curve.double(g)
+    pq = curve.addPointsProjective(p,q)
+    p2 = curve.doubleProjective(g)
     print("Addition ------------------------------------")
     print("P2 -------------------------------------")
     print(p2)
     print(curve.doubleAffine(g))
+    print("P3 -------------------------------------")
+    print(curve.addPointsAffine(p2,g))
     print("P4 -------------------------------------")
-    print(curve.double(p2))
+    print(curve.doubleProjective(p2))
     print(curve.doubleAffine(p2))
     print("P8 -------------------------------------")
-    print(curve.double(curve.double(p2)))
+    print(curve.doubleProjective(curve.doubleProjective(p2)))
     print(curve.doubleAffine(curve.doubleAffine(p2)))
     print("P + Q -------------------------------------")
     print(pq)
@@ -558,9 +589,11 @@ def Curve25519Test():
     #p3 = curve.addPoints(p1,p2)
     #print(curve.addPoints(p3,p1))
     #print(curve.addPoints(p2,p2))
+    print("100 * g: ----------------------------------------------------------")
+    print(curve.mult(1000,g))
 
 
-def AffineVsProjective():
+def AffineVsProjectiveTest():
     curve = Curve25519()
     a_start = ECPoint(9, 14781619447589544791020593568409986887264606134616475288964881837755586237401,False)
     b_start = ECPoint(9, 43114425171068552920764898935933967039370386198203806730763910166200978582548, False)
@@ -594,17 +627,17 @@ def AffineVsProjective():
     c = c_start
     d = d_start
     for x in range (0,50):
-        a = curve.addPoints(a,b)
-        b = curve.addPoints(d,c)
-        c = curve.addPoints(a,d)
-        d = curve.addPoints(b,c)
+        a = curve.addPointsProjective(a,b)
+        b = curve.addPointsProjective(d,c)
+        c = curve.addPointsProjective(a,d)
+        d = curve.addPointsProjective(b,c)
     delta_time_projective_addition = time.ticks_us() - start_time
 
     print("projective addition: ", delta_time_projective_addition / 200, " micro seconds")
 
     start_time = time.ticks_us()
     for x in range (0,200):
-        a = curve.double(a)
+        a = curve.doubleProjective(a)
     delta_time_projective_double = time.ticks_us() - start_time
     print("projective doubling: ", delta_time_projective_double / 200 , " micro seconds")
 
@@ -614,6 +647,27 @@ def AffineVsProjective():
 
 
 
+###############################################################################################
+def WeierstrassVsCurve25519Test():
+    #initialize Weierstraß Curve
+    weierstrass = EllipticCurve(15792089237316195423570985008687907853269984665640564039457583998564650230,115792089237316195423570985008687907853269984665640564039457583998564650230197,115792089237316195423570985008687907853269984665640564039457584007913129640233)
+    g_w = ECPoint(104643561111080986962651636923349329984053149284385423934626192020695774567758,112131754190385317238677253571605670478896761682179953703038465984768056609039,False)
+    #initialize Curve25519
+    curve = Curve25519()
+    g_c = ECPoint(14847277145635483483963372537557091634710985132825781088887140890597596352251,48981431527428949880507557032295310859754924433568441600873610210018059225738,False)
+
+    start_time = time.ticks_us()
+    weierstrass.multEfficient(24623137305878816398398911160594559162372272573335115162610566893532021787955,g_w)
+    time_w = time.ticks_us() - start_time
+
+    start_time = time.ticks_us()
+    curve.multEfficient(24623137305878816398398911160594559162372272573335115162610566893532021787955,g_c)
+    time_c = time.ticks_us() - start_time
+
+    print("Multiplication on Weierstrass curve took {} micro seconds".format(time_w))
+    print("Multiplication on Curve25519 took {} micro seconds".format(time_c))
+    print("Curve25519 is {} times faster than Weierstrass Curve".format(time_w/time_c))
+
 
 
 
@@ -621,8 +675,10 @@ def AffineVsProjective():
 ###############################################################
 
 #performanceTest(1000)
-squareAndMultiplyPerformanceTest(100000)
-#DiffieHellmanTest(4)
+#squareAndMultiplyPerformanceTest(100000)
+#DiffieHellmanTestCurve25519()
+#DiffieHellmanTest()
 #inverseMultRatioTest(1046435611110809869626516369233493299840531492843854239346266420534567758,1000)
 #Curve25519Test()
 #AffineVsProjective()
+WeierstrassVsCurve25519Test()
