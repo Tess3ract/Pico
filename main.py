@@ -49,7 +49,7 @@ class EllipticCurve:
             return ((self.A == other.A) and (self.B == other.B) and (self.p == other.p))
         return False
 
-    def addPointsProjective(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
+    def addPoints(self, p1:ECPoint, p2:ECPoint) -> ECPoint:
         prime=self.p
         if(p1.i==True and p2.i==True):
             return ECPoint(None,None,True)
@@ -72,8 +72,8 @@ class EllipticCurve:
         else:
             return ECPoint (None,None,True)
 
-    def doubleProjective(self, p:ECPoint) -> ECPoint:
-        return self.addPointsProjective(p,p)    
+    def double(self, p:ECPoint) -> ECPoint:
+        return self.addPoints(p,p)    
     
     def onCurve (self, point:ECPoint) -> bool:
         if point.i==True: return True
@@ -84,7 +84,7 @@ class EllipticCurve:
             return ECPoint(None,None,True)
         result = ECPoint(point.x,point.y,False)
         for i in range(2,k+1):
-            result = self.addPointsProjective(result,point)
+            result = self.addPoints(result,point)
         return result
 
     def multEfficient(self, k:int, point:ECPoint) -> ECPoint:
@@ -97,9 +97,9 @@ class EllipticCurve:
         #square and multiply
         result = ECPoint(None,None,True)
         for bit in binaryK:
-            result = self.doubleProjective(result)
+            result = self.double(result)
             if(bit&1):
-                result = self.addPointsProjective(result,point)
+                result = self.addPoints(result,point)
         return result
             
 
@@ -425,18 +425,18 @@ class DiffieHellman:
         led = machine.Pin(25, machine.Pin.OUT)
         if(ka == kb):
             print("Key exchange was successful!")
-            for i in range(8):
-                led.value(1)
-                time.sleep(1)
-                led.value(0)
-                time.sleep(1)
+            #for i in range(8):
+                #led.value(1)
+                #time.sleep(1)
+                #led.value(0)
+                #time.sleep(1)
         else:
             print("Error! \t Key exchange was not successful!")
-            for i in range(40):
-                led.value(1)
-                time.sleep(0.2)
-                led.value(0)
-                time.sleep(0.2)
+            #for i in range(40):
+                #led.value(1)
+                #time.sleep(0.2)
+                #led.value(0)
+                #time.sleep(0.2)
 
 
 
@@ -525,13 +525,15 @@ def DiffieHellmanTest():
     dh =DiffieHellman(el,g)
     dh.demonstration(57896044618658097711785492504343953926512770110598059797506569779613311366406, 47606440156792287940606943253909558533971493099538253817755912803560908337955)
 
-def DiffieHellmanTestCurve25519():
+def DiffieHellmanCurve25519Test():
     
     g = ECPoint(9, 14781619447589544791020593568409986887264606134616475288964881837755586237401,False)
     curve = Curve25519()
     dh = DiffieHellman(curve,g)
+    start_time = time.ticks_us()
     dh.demonstration(57896044618658097711785492504343953926512770110598059797506569779613311366406,47606440156792287940606943253909558533971493099538253817755912803560908337955)
-
+    delta_time = time.ticks_us() - start_time
+    print("Key exchange successfully executed in {} micro seconds".format(delta_time))
 ###############################################################
 #a^(-1) equals a^(p-2)
 def inverseMultRatioTest(number:int, epoch:int):
@@ -675,10 +677,11 @@ def WeierstrassVsCurve25519Test():
 ###############################################################
 
 #performanceTest(1000)
-#squareAndMultiplyPerformanceTest(100000)
-#DiffieHellmanTestCurve25519()
 #DiffieHellmanTest()
 #inverseMultRatioTest(1046435611110809869626516369233493299840531492843854239346266420534567758,1000)
 #Curve25519Test()
 #AffineVsProjective()
-WeierstrassVsCurve25519Test()
+
+squareAndMultiplyPerformanceTest(1000)
+#WeierstrassVsCurve25519Test()
+#DiffieHellmanCurve25519Test()
